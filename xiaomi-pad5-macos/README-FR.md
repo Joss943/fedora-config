@@ -109,6 +109,7 @@ Test mené sur un hôte x86 à 4 cœurs sans `/dev/kvm`, donc en TCG comme sur l
 | Noyau Darwin 19.6.0 lancé | + 15 s |
 | launchd, « Early boot complete » | + 2 min |
 | Installeur graphique (« Launching the Language Chooser ») | + 4 min |
+| Fenêtre « macOS Recovery », examen des volumes (capture `preuve-macos-recovery-tcg.png`) | + 14 min |
 
 **Le piège qui bloque tout le monde en émulation** : avec la ligne `-cpu Penryn` classique d'OSX-KVM, le démarrage reste figé sur la pomme. Le journal série montre une panique `invalid opcode` dans `corecrypto gcm_init` : dès qu'AES-NI est annoncé, la bibliothèque crypto d'Apple utilise PCLMULQDQ, que le modèle Penryn de QEMU n'expose pas. Sous KVM, le vrai processeur exécute l'instruction quand même ; sous TCG, l'émulateur la refuse. La correction tient en un drapeau : `+pclmulqdq` (déjà dans `run-macos.sh`). Un seul cœur ou quatre, même résultat.
 
