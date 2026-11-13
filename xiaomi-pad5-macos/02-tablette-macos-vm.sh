@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  Étape 2 (à lancer SUR LA TABLETTE, sous Ubuntu 26.04 arm64) :
+#  créer une machine virtuelle macOS (x86-64) émulée avec QEMU/TCG + OpenCore.
+#
+#  Réalité technique : le Snapdragon 860 est un ARM sans KVM accessible
+#  (Linux tourne en EL1, l'hyperviseur Qualcomm occupe EL2). macOS Intel est
+#  donc ÉMULÉ instruction par instruction. Ça démarre, mais c'est lent :
+#  comptez 2 à 5 min pour OpenCore, 30 à 60 min pour l'installeur, plusieurs
+#  heures pour l'installation complète. C'est une preuve de concept.
+#
+#  Version conseillée : Catalina (10.15) — la plus légère qui accepte le
+#  profil CPU "Penryn" émulé (pas d'AVX2 requis). Big Sur (11) fonctionne aussi.
+#
+#  Usage :  ./02-tablette-macos-vm.sh [catalina|big-sur|mojave|high-sierra]
+# =============================================================================
+set -euo pipefail
+VER="${1:-catalina}"
+VM="${VM:-$HOME/macos-vm}"
+
+echo ">> 1/6 Paquets (QEMU x86 émulé, dmg2img, outils)…"
+sudo apt-get update -qq
+sudo apt-get install -y -qq qemu-system-x86 qemu-utils dmg2img git python3 zram-tools
+
+echo ">> 2/6 zram (compense les 6 Go de RAM de la Pad 5)…"
+echo -e "ALGO=zstd\nPERCENT=50" | sudo tee /etc/default/zramswap >/dev/null
+sudo systemctl restart zramswap || true
+
+echo ">> 3/6 OSX-KVM (OpenCore + OVMF + script de téléchargement Apple)…"
+mkdir -p "$VM"; cd "$VM"
+[ -d OSX-KVM ] || git clone --depth 1 --recursive https://github.com/kholia/OSX-KVM.git
+cd OSX-KVM
+
+echo ">> 4/6 Image de récupération macOS ($VER) depuis les serveurs Apple…"
+# fetch-macOS-v2.py = macrecovery.py d'OpenCorePkg (Acidanthera). -s choisit la version.
+[ -f BaseSystem.dmg ] || python3 fetch-macOS-v2.py -s "$VER"
+[ -f BaseSystem.img ] || dmg2img -i BaseSystem.dmg BaseSystem.img
+
+echo ">> 5/6 Disque virtuel (qcow2 dynamique, 64 Go max)…"
+[ -f mac_hdd_ng.img ] || qemu-img create -f qcow2 mac_hdd_ng.img 64G
+
+echo ">> 6/6 Script de lancement optimisé TCG…"
+cat > run-macos.sh <<'RUN'
+#!/usr/bin/env bash
+# macOS x86-64 émulé (TCG) sur Xiaomi Pad 5 — testé : OpenCore atteint en ~1 min
+# sous TCG pur (hôte x86), la commande est identique sur l'hôte arm64.
+cd "$(dirname "$0")"
+RAM="${RAM:-3072}"      # MiB. 3 Go laisse ~2,5 Go à Ubuntu sur une Pad 5 (6 Go).
+CORES="${CORES:-4}"     # 4 gros cœurs (A76) ; TCG multi-thread les utilise.
+exec qemu-system-x86_64 \
+  -accel tcg,thread=multi,tb-size=384 \
+  -m "$RAM" -smp "$CORES",cores="$CORES",sockets=1 \
+  -cpu Penryn,vendor=GenuineIntel,vmware-cpuid-freq=on,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt \
+  -machine q35 \
+  -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 \
+  -device isa-applesmc,osk="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc" \
+  -drive if=pflash,format=raw,readonly=on,file=OVMF_CODE_4M.fd \
+  -drive if=pflash,format=raw,file=OVMF_VARS-1024x768.fd \
+  -smbios type=2 \
+  -device ich9-ahci,id=sata \
+  -drive id=OpenCoreBoot,if=none,snapshot=on,format=qcow2,file=OpenCore/OpenCore.qcow2 \
+  -device ide-hd,bus=sata.2,drive=OpenCoreBoot \
+  -drive id=InstallMedia,if=none,file=BaseSystem.img,format=raw \
+  -device ide-hd,bus=sata.3,drive=InstallMedia \
+  -drive id=MacHDD,if=none,file=mac_hdd_ng.img,format=qcow2 \
+  -device ide-hd,bus=sata.4,drive=MacHDD \
+  -netdev user,id=net0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=net0 \
+  -device vmware-svga \
+  -display gtk,gl=off,zoom-to-fit=on \
+  -monitor none -serial none \
+  "$@"
+RUN
+chmod +x run-macos.sh
+
+cat <<TXT
+
+Terminé. Lancement :   $VM/OSX-KVM/run-macos.sh
+
+Dans la VM :
+  1. Menu OpenCore -> "macOS Base System" (installeur).
+  2. Utilitaire de disque -> formater "QEMU HARDDISK" 64 Go en APFS, nom "macOS".
+  3. Installer macOS sur "macOS". Plusieurs redémarrages (choisir ensuite
+     "macOS Installer" puis "macOS" dans OpenCore). Comptez plusieurs heures.
+  4. Après installation : éditer run-macos.sh et supprimer les 2 lignes
+     InstallMedia pour accélérer le démarrage.
+
+Astuces :
+  - Pas d'accélération graphique dans la VM (vmware-svga logiciel) : garder
+    la résolution 1024x768 (OVMF_VARS-1024x768.fd).
+  - RAM=2560 ./run-macos.sh  si Ubuntu swappe trop.
+  - SSH dans la VM : ssh -p 2222 utilisateur@localhost (activer "Partage
+    distant" dans macOS).
+TXT
