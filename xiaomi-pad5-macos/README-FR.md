@@ -99,9 +99,22 @@ Le script :
 
 Dans la VM : OpenCore → « macOS Base System » → Utilitaire de disque, formater le disque 64 Go en APFS → installer. Prévoir plusieurs heures et plusieurs redémarrages (choisir « macOS Installer » puis « macOS » dans OpenCore).
 
+### Validation réelle (émulation pure, sans KVM)
+
+Test mené sur un hôte x86 à 4 cœurs sans `/dev/kvm`, donc en TCG comme sur la tablette, avec l'image Catalina téléchargée chez Apple (48/48 blocs vérifiés contre la liste de contrôle signée) :
+
+| Étape | Résultat |
+|---|---|
+| OpenCore (menu de démarrage) | 40 s |
+| Noyau Darwin 19.6.0 lancé | + 15 s |
+| launchd, « Early boot complete » | + 2 min |
+| Installeur graphique (« Launching the Language Chooser ») | + 4 min |
+
+**Le piège qui bloque tout le monde en émulation** : avec la ligne `-cpu Penryn` classique d'OSX-KVM, le démarrage reste figé sur la pomme. Le journal série montre une panique `invalid opcode` dans `corecrypto gcm_init` : dès qu'AES-NI est annoncé, la bibliothèque crypto d'Apple utilise PCLMULQDQ, que le modèle Penryn de QEMU n'expose pas. Sous KVM, le vrai processeur exécute l'instruction quand même ; sous TCG, l'émulateur la refuse. La correction tient en un drapeau : `+pclmulqdq` (déjà dans `run-macos.sh`). Un seul cœur ou quatre, même résultat.
+
 ### Attentes réalistes
 
-- Validé ici en TCG pur sur hôte x86 (4 cœurs, pas de KVM) : OpenCore affiché en 60 s. Sur la Pad 5, l'hôte est ARM, donc traduction x86→ARM64 : comptez 2 à 5 min pour OpenCore, 30 à 60 min pour l'installeur, plusieurs heures d'installation.
+- Sur la Pad 5, l'hôte est ARM, donc traduction x86→ARM64 en plus : comptez 2 à 5 min pour OpenCore, 15 à 40 min pour l'installeur, plusieurs heures d'installation.
 - Une fois installé : le Finder, Terminal, Safari léger répondent, avec des secondes de latence. Pas d'accélération graphique (QuickTime, Xcode, jeux, vidéos : non).
 - Pourquoi Catalina : dernière version « légère » avant Big Sur, ne requiert pas AVX2 (Ventura et plus l'exigent, et TCG avec `-cpu Penryn` ne l'expose pas). Big Sur fonctionne aussi mais est plus lourd.
 - Ne pas monter la RAM de la VM au-delà de 3 Go sur une Pad 5 (Ubuntu + GNOME ont besoin du reste). Si ça swappe : `RAM=2560 ./run-macos.sh`.

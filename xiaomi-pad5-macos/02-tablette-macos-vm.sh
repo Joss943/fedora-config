@@ -42,8 +42,12 @@ echo ">> 5/6 Disque virtuel (qcow2 dynamique, 64 Go max)…"
 echo ">> 6/6 Script de lancement optimisé TCG…"
 cat > run-macos.sh <<'RUN'
 #!/usr/bin/env bash
-# macOS x86-64 émulé (TCG) sur Xiaomi Pad 5 — testé : OpenCore atteint en ~1 min
-# sous TCG pur (hôte x86), la commande est identique sur l'hôte arm64.
+# macOS x86-64 émulé (TCG) sur Xiaomi Pad 5.
+# TESTÉ en TCG pur (sans KVM) : l'installeur graphique de Catalina s'affiche.
+# IMPORTANT : "+pclmulqdq" est obligatoire en émulation. Sans lui, corecrypto
+# (gcm_init) exécute une instruction absente du modèle Penryn et le noyau
+# panique "invalid opcode" juste après "kdp_core zlib memory" (écran figé sur
+# la pomme). Sous KVM le vrai CPU masque ce problème, pas sous TCG.
 cd "$(dirname "$0")"
 RAM="${RAM:-3072}"      # MiB. 3 Go laisse ~2,5 Go à Ubuntu sur une Pad 5 (6 Go).
 CORES="${CORES:-4}"     # 4 gros cœurs (A76) ; TCG multi-thread les utilise.
@@ -55,7 +59,7 @@ INSTALL_ARGS=(-drive id=InstallMedia,if=none,file=BaseSystem.img,format=raw -dev
 exec qemu-system-x86_64 \
   -accel tcg,thread=multi,tb-size=384 \
   -m "$RAM" -smp "$CORES",cores="$CORES",sockets=1 \
-  -cpu Penryn,vendor=GenuineIntel,vmware-cpuid-freq=on,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt \
+  -cpu Penryn,vendor=GenuineIntel,vmware-cpuid-freq=on,+ssse3,+sse4.2,+popcnt,+avx,+aes,+pclmulqdq,+xsave,+xsaveopt \
   -machine q35 \
   -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 \
   -device isa-applesmc,osk="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc" \
