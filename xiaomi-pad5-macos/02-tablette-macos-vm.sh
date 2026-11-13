@@ -47,6 +47,11 @@ cat > run-macos.sh <<'RUN'
 cd "$(dirname "$0")"
 RAM="${RAM:-3072}"      # MiB. 3 Go laisse ~2,5 Go à Ubuntu sur une Pad 5 (6 Go).
 CORES="${CORES:-4}"     # 4 gros cœurs (A76) ; TCG multi-thread les utilise.
+INSTALLED="${INSTALLED:-0}"  # INSTALLED=1 : macOS est installé, on retire l'installeur.
+DISPLAY_ARGS=(-display gtk,gl=off,zoom-to-fit=on)
+[ "${HEADLESS:-0}" = 1 ] && DISPLAY_ARGS=(-display none -vnc 127.0.0.1:1)  # VNC sur :5901
+INSTALL_ARGS=(-drive id=InstallMedia,if=none,file=BaseSystem.img,format=raw -device ide-hd,bus=sata.3,drive=InstallMedia)
+[ "$INSTALLED" = 1 ] && INSTALL_ARGS=()
 exec qemu-system-x86_64 \
   -accel tcg,thread=multi,tb-size=384 \
   -m "$RAM" -smp "$CORES",cores="$CORES",sockets=1 \
@@ -60,13 +65,12 @@ exec qemu-system-x86_64 \
   -device ich9-ahci,id=sata \
   -drive id=OpenCoreBoot,if=none,snapshot=on,format=qcow2,file=OpenCore/OpenCore.qcow2 \
   -device ide-hd,bus=sata.2,drive=OpenCoreBoot \
-  -drive id=InstallMedia,if=none,file=BaseSystem.img,format=raw \
-  -device ide-hd,bus=sata.3,drive=InstallMedia \
+  "${INSTALL_ARGS[@]}" \
   -drive id=MacHDD,if=none,file=mac_hdd_ng.img,format=qcow2 \
   -device ide-hd,bus=sata.4,drive=MacHDD \
   -netdev user,id=net0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=net0 \
   -device vmware-svga \
-  -display gtk,gl=off,zoom-to-fit=on \
+  "${DISPLAY_ARGS[@]}" \
   -monitor none -serial none \
   "$@"
 RUN
@@ -81,8 +85,8 @@ Dans la VM :
   2. Utilitaire de disque -> formater "QEMU HARDDISK" 64 Go en APFS, nom "macOS".
   3. Installer macOS sur "macOS". Plusieurs redémarrages (choisir ensuite
      "macOS Installer" puis "macOS" dans OpenCore). Comptez plusieurs heures.
-  4. Après installation : éditer run-macos.sh et supprimer les 2 lignes
-     InstallMedia pour accélérer le démarrage.
+  4. Après installation :  INSTALLED=1 ./run-macos.sh  (retire l'installeur).
+     Sans écran :  HEADLESS=1 INSTALLED=1 ./run-macos.sh  puis VNC sur localhost:5901.
 
 Astuces :
   - Pas d'accélération graphique dans la VM (vmware-svga logiciel) : garder

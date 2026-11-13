@@ -10,10 +10,12 @@
 | macOS **ARM (Apple Silicon) en VM** sur la Pad 5 | **Pas aujourd'hui** | Les projets existent (orchard, vmapple-cli, Ambrosia) mais exigent 16 Go de RAM ou KVM + Pointer Authentication. La Pad 5 a 6 Go et un CPU ARMv8.2 sans PAC. |
 | macOS **utilisable au quotidien** sur l'écran de la Pad 5 | **Oui** | Bureau distant vers un vrai Mac ou un Mac mini loué dans le cloud, depuis Ubuntu ou Android. |
 
-Ce dossier contient deux scripts prêts à l'emploi :
+Ce dossier contient quatre scripts prêts à l'emploi :
 
 - `01-pc-installer-ubuntu-nabu.sh` (sur le PC) : installe Ubuntu 26.04 sur la tablette, en mode seul ou dual-boot avec Android.
-- `02-tablette-macos-vm.sh` (sur la tablette, sous Ubuntu) : télécharge macOS depuis les serveurs Apple, prépare OpenCore et génère `run-macos.sh` réglé pour l'émulation.
+- `02-tablette-macos-vm.sh` (sur la tablette, sous Ubuntu) : télécharge macOS depuis les serveurs Apple, prépare OpenCore et génère `run-macos.sh` réglé pour l'émulation (modes `INSTALLED=1` après installation et `HEADLESS=1` pour VNC).
+- `03-tablette-look-macos.sh` (sur la tablette) : habille Ubuntu en macOS, en natif et accéléré par le GPU (thème WhiteSur, dock, boutons à gauche, police Inter). Réversible avec `revert`.
+- `04-tablette-mac-distant.sh` (sur la tablette) : installe Remmina et RustDesk pour afficher un vrai Mac, local ou loué dans le cloud, sur l'écran de la Pad 5.
 
 La commande QEMU de `run-macos.sh` a été **testée** en émulation pure (TCG, aucun KVM) : OpenCore s'affiche en une minute. Capture : `preuve-opencore-tcg.png`.
 
@@ -104,13 +106,13 @@ Dans la VM : OpenCore → « macOS Base System » → Utilitaire de disque, form
 - Pourquoi Catalina : dernière version « légère » avant Big Sur, ne requiert pas AVX2 (Ventura et plus l'exigent, et TCG avec `-cpu Penryn` ne l'expose pas). Big Sur fonctionne aussi mais est plus lourd.
 - Ne pas monter la RAM de la VM au-delà de 3 Go sur une Pad 5 (Ubuntu + GNOME ont besoin du reste). Si ça swappe : `RAM=2560 ./run-macos.sh`.
 
-## 4. La seule façon d'avoir un macOS fluide sur la Pad 5 : le déport d'écran
+## 4. Un macOS fluide sur la Pad 5 : apparence native et déport d'écran
 
-Si l'objectif est d'utiliser macOS sur la tablette (et pas de prouver qu'il y tourne), la bonne réponse technique est un Mac réel affiché sur la Pad 5 :
+Si l'objectif est d'utiliser macOS sur la tablette (et pas de prouver qu'il y tourne), deux compléments font la différence :
 
-- **Mac à la maison** : activer Partage d'écran (VNC) ou installer RustDesk/Jump Desktop ; côté tablette, client VNC/RustDesk sous Ubuntu ou Android. En Wi-Fi local, 60 i/s en 2560x1600 est courant.
-- **Mac dans le cloud** : Mac mini M-series chez Scaleway, MacStadium, AWS EC2 Mac (facturation horaire ou mensuelle), accessible en VNC/RDP. C'est ce que font les développeurs iOS sans Mac.
-- **Look macOS sur Ubuntu** : thème WhiteSur (GTK + icônes), dock Dash-to-Dock en bas, police Inter/SF Pro, gestes tactiles GNOME. Visuellement très proche, et nativement rapide sur l'Adreno 640.
+- **Apparence macOS native** (`03-tablette-look-macos.sh`) : thème WhiteSur clair/sombre style Monterey pour GTK et GNOME Shell, icônes et curseurs WhiteSur, police Inter, boutons de fenêtre à gauche, dock Ubuntu en bas centré et auto-masqué façon Dock macOS, lanceur d'applications façon Launchpad, recherche par la touche Super façon Spotlight, gestes 3 doigts natifs. Tout tourne sur l'Adreno 640 à 120 Hz. `./03-tablette-look-macos.sh revert` restaure Ubuntu.
+- **Mac réel sur l'écran de la Pad 5** (`04-tablette-mac-distant.sh`) : Remmina (VNC vers le Partage d'écran macOS en réseau local, 2560x1600 plein écran, tactile en souris) et RustDesk (à travers Internet sans ouvrir de port). Côté Mac : Réglages > Général > Partage > Partage d'écran, avec mot de passe VNC.
+- **Pas de Mac ?** Mac mini Apple Silicon loués à l'heure ou au mois (Scaleway en Europe, MacStadium, MacinCloud, AWS EC2 Mac). Connexion identique. C'est la solution standard des développeurs iOS sans Mac.
 
 ## 5. Note légale
 
