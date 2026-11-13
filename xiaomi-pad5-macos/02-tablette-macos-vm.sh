@@ -9,10 +9,13 @@
 #  comptez 2 à 5 min pour OpenCore, 30 à 60 min pour l'installeur, plusieurs
 #  heures pour l'installation complète. C'est une preuve de concept.
 #
-#  Version conseillée : Catalina (10.15) — la plus légère qui accepte le
-#  profil CPU "Penryn" émulé (pas d'AVX2 requis). Big Sur (11) fonctionne aussi.
+#  Versions testées en émulation pure : Catalina (10.15) et Sonoma (14).
+#   - catalina / big-sur / monterey / mojave / high-sierra : CPU "Penryn" émulé.
+#   - sonoma / ventura / sequoia / tahoe : exigent AVX2 -> CPU "Skylake-Client"
+#     émulé. Plus lourds (4 Go de RAM minimum : sur une Pad 5 à 6 Go, c'est
+#     juste). Catalina reste le meilleur compromis pour la tablette.
 #
-#  Usage :  ./02-tablette-macos-vm.sh [catalina|big-sur|mojave|high-sierra]
+#  Usage :  ./02-tablette-macos-vm.sh [catalina|big-sur|monterey|ventura|sonoma|sequoia|tahoe|mojave|high-sierra]
 # =============================================================================
 set -euo pipefail
 VER="${1:-catalina}"
@@ -39,8 +42,15 @@ echo ">> 4/6 Image de récupération macOS ($VER) depuis les serveurs Apple…"
 echo ">> 5/6 Disque virtuel (qcow2 dynamique, 64 Go max)…"
 [ -f mac_hdd_ng.img ] || qemu-img create -f qcow2 mac_hdd_ng.img 64G
 
-echo ">> 6/6 Script de lancement optimisé TCG…"
-cat > run-macos.sh <<'RUN'
+case "$VER" in
+  sonoma|ventura|sequoia|tahoe) CPUMODEL="Skylake-Client,-hle,-rtm"; DEFRAM=4096 ;;
+  *)                            CPUMODEL="Penryn";                   DEFRAM=3072 ;;
+esac
+# Carte réseau : Intel e1000 (pilote Apple intégré, lien validé sous Catalina en TCG) ;
+# virtio-net pour Sequoia/Tahoe qui n'ont plus le pilote Intel 8254x.
+case "$VER" in sequoia|tahoe) NIC="virtio-net-pci" ;; *) NIC="e1000-82545em" ;; esac
+echo ">> 6/6 Script de lancement optimisé TCG (CPU $CPUMODEL)…"
+cat > run-macos.sh <<RUN
 #!/usr/bin/env bash
 # macOS x86-64 émulé (TCG) sur Xiaomi Pad 5.
 # TESTÉ en TCG pur (sans KVM) : l'installeur graphique de Catalina s'affiche.
@@ -48,35 +58,35 @@ cat > run-macos.sh <<'RUN'
 # (gcm_init) exécute une instruction absente du modèle Penryn et le noyau
 # panique "invalid opcode" juste après "kdp_core zlib memory" (écran figé sur
 # la pomme). Sous KVM le vrai CPU masque ce problème, pas sous TCG.
-cd "$(dirname "$0")"
-RAM="${RAM:-3072}"      # MiB. 3 Go laisse ~2,5 Go à Ubuntu sur une Pad 5 (6 Go).
-CORES="${CORES:-4}"     # 4 gros cœurs (A76) ; TCG multi-thread les utilise.
-INSTALLED="${INSTALLED:-0}"  # INSTALLED=1 : macOS est installé, on retire l'installeur.
+cd "\$(dirname "\$0")"
+RAM="\${RAM:-$DEFRAM}"      # MiB. Sur une Pad 5 (6 Go), ne pas dépasser 3 à 4 Go.
+CORES="\${CORES:-4}"     # 4 gros cœurs (A76) ; TCG multi-thread les utilise.
+INSTALLED="\${INSTALLED:-0}"  # INSTALLED=1 : macOS est installé, on retire l'installeur.
 DISPLAY_ARGS=(-display gtk,gl=off,zoom-to-fit=on)
-[ "${HEADLESS:-0}" = 1 ] && DISPLAY_ARGS=(-display none -vnc 127.0.0.1:1)  # VNC sur :5901
+[ "\${HEADLESS:-0}" = 1 ] && DISPLAY_ARGS=(-display none -vnc 127.0.0.1:1)  # VNC sur :5901
 INSTALL_ARGS=(-drive id=InstallMedia,if=none,file=BaseSystem.img,format=raw -device ide-hd,bus=sata.3,drive=InstallMedia)
-[ "$INSTALLED" = 1 ] && INSTALL_ARGS=()
-exec qemu-system-x86_64 \
-  -accel tcg,thread=multi,tb-size=384 \
-  -m "$RAM" -smp "$CORES",cores="$CORES",sockets=1 \
-  -cpu Penryn,vendor=GenuineIntel,vmware-cpuid-freq=on,+ssse3,+sse4.2,+popcnt,+avx,+aes,+pclmulqdq,+xsave,+xsaveopt \
-  -machine q35 \
-  -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 \
-  -device isa-applesmc,osk="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc" \
-  -drive if=pflash,format=raw,readonly=on,file=OVMF_CODE_4M.fd \
-  -drive if=pflash,format=raw,file=OVMF_VARS-1024x768.fd \
-  -smbios type=2 \
-  -device ich9-ahci,id=sata \
-  -drive id=OpenCoreBoot,if=none,snapshot=on,format=qcow2,file=OpenCore/OpenCore.qcow2 \
-  -device ide-hd,bus=sata.2,drive=OpenCoreBoot \
-  "${INSTALL_ARGS[@]}" \
-  -drive id=MacHDD,if=none,file=mac_hdd_ng.img,format=qcow2 \
-  -device ide-hd,bus=sata.4,drive=MacHDD \
-  -netdev user,id=net0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=net0 \
-  -device vmware-svga \
-  "${DISPLAY_ARGS[@]}" \
-  -monitor none -serial none \
-  "$@"
+[ "\$INSTALLED" = 1 ] && INSTALL_ARGS=()
+exec qemu-system-x86_64 \\
+  -accel tcg,thread=multi,tb-size=384 \\
+  -m "\$RAM" -smp "\$CORES",cores="\$CORES",sockets=1 \\
+  -cpu $CPUMODEL,vendor=GenuineIntel,vmware-cpuid-freq=on,+ssse3,+sse4.2,+popcnt,+avx,+aes,+pclmulqdq,+xsave,+xsaveopt \\
+  -machine q35 \\
+  -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 \\
+  -device isa-applesmc,osk="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc" \\
+  -drive if=pflash,format=raw,readonly=on,file=OVMF_CODE_4M.fd \\
+  -drive if=pflash,format=raw,file=OVMF_VARS-1024x768.fd \\
+  -smbios type=2 \\
+  -device ich9-ahci,id=sata \\
+  -drive id=OpenCoreBoot,if=none,snapshot=on,format=qcow2,file=OpenCore/OpenCore.qcow2 \\
+  -device ide-hd,bus=sata.2,drive=OpenCoreBoot \\
+  "\${INSTALL_ARGS[@]}" \\
+  -drive id=MacHDD,if=none,file=mac_hdd_ng.img,format=qcow2 \\
+  -device ide-hd,bus=sata.4,drive=MacHDD \\
+  -netdev user,id=net0,hostfwd=tcp::2222-:22 -device $NIC,netdev=net0 \\
+  -device vmware-svga \\
+  "\${DISPLAY_ARGS[@]}" \\
+  -monitor none -serial none \\
+  "\$@"
 RUN
 chmod +x run-macos.sh
 
