@@ -110,6 +110,9 @@ Test mené sur un hôte x86 à 4 cœurs sans `/dev/kvm`, donc en TCG comme sur l
 | launchd, « Early boot complete » | + 2 min |
 | Installeur graphique (« Launching the Language Chooser ») | + 4 min |
 | Fenêtre « macOS Recovery », examen des volumes (capture `preuve-macos-recovery-tcg.png`) | + 14 min |
+| Fenêtre « macOS Utilities » : Réinstaller macOS, Utilitaire de disque (capture `preuve-macos-utilities-tcg.png`) | + 17 min |
+
+À ce stade l'installeur est pleinement utilisable à la souris et au clavier : Utilitaire de disque pour formater le disque virtuel en APFS, puis « Reinstall macOS » qui télécharge Catalina complet depuis les serveurs Apple. Le test s'est arrêté là.
 
 **Le piège qui bloque tout le monde en émulation** : avec la ligne `-cpu Penryn` classique d'OSX-KVM, le démarrage reste figé sur la pomme. Le journal série montre une panique `invalid opcode` dans `corecrypto gcm_init` : dès qu'AES-NI est annoncé, la bibliothèque crypto d'Apple utilise PCLMULQDQ, que le modèle Penryn de QEMU n'expose pas. Sous KVM, le vrai processeur exécute l'instruction quand même ; sous TCG, l'émulateur la refuse. La correction tient en un drapeau : `+pclmulqdq` (déjà dans `run-macos.sh`). Un seul cœur ou quatre, même résultat.
 
